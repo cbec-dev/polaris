@@ -601,6 +601,24 @@ namespace proc {
              path_ends_with(argv0_path, "/ubuntu12_32/steam");
     }
 
+    // Returns true if the process belongs to a known third-party launcher (heroic, lutris, etc.)
+    // Used to exclude launcher processes from game exit monitoring so that closing the game
+    // ends the stream even if the launcher window remains open.
+    bool is_launcher_pid(pid_t pid, const std::string &source) {
+      if (source.empty()) return false;
+      auto comm = ascii_lower_copy(read_proc_text(pid, "comm"));
+      boost::trim(comm);
+      const auto argv0 = proc_argv0_basename(proc_argv0_lower(read_proc_text(pid, "cmdline")));
+      if (source == "heroic") {
+        // Heroic is an Electron app; its main process and GPU/renderer helpers all show as "heroic"
+        return comm == "heroic" || argv0 == "heroic";
+      }
+      if (source == "lutris") {
+        return comm == "lutris" || argv0 == "lutris";
+      }
+      return false;
+    }
+
     std::vector<pid_t> scan_proc_pids(const std::function<bool(pid_t)> &predicate) {
       std::vector<pid_t> pids;
       DIR *dir = opendir("/proc");
@@ -741,6 +759,49 @@ namespace proc {
              text.find("SteamGameId=" + appid) != std::string::npos ||
              text.find("steam://rungameid/" + appid) != std::string::npos ||
              (text.find("-applaunch") != std::string::npos && text.find(appid) != std::string::npos);
+    }
+
+    // Like proc_text_contains_steam_appid but only checks environment variables, not cmdline.
+    // The Steam launcher process has the appid in its cmdline but not in its environ;
+    // actual game processes set SteamAppId/SteamGameId in their environ.
+    bool proc_environ_contains_steam_appid(const std::string &environ, const std::string &appid) {
+      if (appid.empty() || environ.empty()) {
+        return false;
+      }
+
+      return environ.find("SteamLaunch AppId=" + appid) != std::string::npos ||
+             environ.find("SteamAppId=" + appid) != std::string::npos ||
+             environ.find("SteamGameId=" + appid) != std::string::npos;
+    }
+
+    // Returns PIDs of running game processes for a Steam appid, matching only by
+    // environment variable (not cmdline). Used by the game exit monitor to avoid
+    // matching the launcher process, which retains the rungameid URL in its cmdline.
+    std::vector<pid_t> steam_game_env_pids(const std::string &appid) {
+      std::vector<pid_t> pids;
+      DIR *dir = opendir("/proc");
+      if (!dir) {
+        return pids;
+      }
+
+      while (auto *entry = readdir(dir)) {
+        const std::string name = entry->d_name;
+        if (!is_proc_pid_dir(name)) {
+          continue;
+        }
+
+        const auto pid = static_cast<pid_t>(std::strtol(name.c_str(), nullptr, 10));
+        if (pid <= 1 || pid == getpid()) {
+          continue;
+        }
+
+        if (proc_environ_contains_steam_appid(read_proc_text(pid, "environ"), appid)) {
+          pids.emplace_back(pid);
+        }
+      }
+
+      closedir(dir);
+      return pids;
     }
 
     std::vector<pid_t> steam_app_pids(const std::string &appid) {
@@ -1829,6 +1890,196 @@ namespace proc {
                                                                    const proc::cmd_t &cmd,
                                                                    bool use_cage_compositor) {
     return should_skip_steam_shutdown_undo_after_cage_cleanup(app, cmd, use_cage_compositor);
+  }
+#endif
+
+#ifdef __linux__
+  void proc_t::start_game_exit_monitor() {
+    auto stop = std::make_shared<std::atomic_bool>(false);
+    auto exited = std::make_shared<std::atomic_bool>(false);
+    _game_monitor_stop = stop;
+    _game_monitor_exited = exited;
+
+    const auto appid = steam_appid_for_context(_app);
+    const auto baseline = _pid_baseline;
+    const auto source = _app.source;
+
+    std::thread([appid, baseline, source, stop, exited]() {
+      using namespace std::chrono_literals;
+
+      // Polling cadence is 2s. Allow up to 300s for a (possibly shader-compiling) game to appear,
+      // and require ~10s of continuous absence before concluding it has exited.
+      constexpr int kSteamAppearanceAttempts = 150;  // 150 * 2s = 300s
+      constexpr int kRequiredEmptyScans = 5;          // 5 * 2s = ~10s
+
+      if (!appid.empty()) {
+        // Steam path: monitor by Steam App ID via SteamAppId/SteamGameId env vars
+        BOOST_LOG(info) << "game_exit_monitor: waiting for Steam app ["sv << appid << "] to start"sv;
+
+        // Steam may pre-compile/load shaders for several minutes before launching the
+        // game executable, so allow a generous window for the appid-tagged process to appear.
+        bool appeared = false;
+        for (int i = 0; i < kSteamAppearanceAttempts && !stop->load(); ++i) {
+          if (!steam_game_env_pids(appid).empty()) {
+            appeared = true;
+            break;
+          }
+          std::this_thread::sleep_for(2s);
+        }
+
+        if (!appeared) {
+          BOOST_LOG(info) << "game_exit_monitor: Steam app ["sv << appid << "] did not appear within "sv
+                          << (kSteamAppearanceAttempts * 2) << "s; ending stream"sv;
+          exited->store(true);
+          return;
+        }
+
+        BOOST_LOG(info) << "game_exit_monitor: Steam app ["sv << appid << "] is running; watching for exit"sv;
+
+        // Require several consecutive empty scans before declaring exit. This survives the
+        // transient gap between shader processing finishing and the game process spawning,
+        // during which no process carries the Steam appid env.
+        int empty_scans = 0;
+        while (!stop->load()) {
+          std::this_thread::sleep_for(2s);
+          if (steam_game_env_pids(appid).empty()) {
+            if (++empty_scans >= kRequiredEmptyScans) {
+              BOOST_LOG(info) << "game_exit_monitor: Steam app ["sv << appid << "] has exited; ending stream"sv;
+              exited->store(true);
+              return;
+            }
+          } else {
+            empty_scans = 0;
+          }
+        }
+      } else {
+        // Non-Steam path.
+        //
+        // Heroic and Lutris games are stored as cage detached commands, so _pid_baseline
+        // is never populated for them. Detect that case and take a local snapshot once
+        // the launcher's worker processes are up; the actual game appears later and is
+        // the only thing not yet in that snapshot.
+        //
+        // If baseline is empty for any other reason, we were called from resume()
+        // (Polaris restarted while the session was active). Use isolated_session_pids()
+        // there — the game inherits the POLARIS_SESSION_* env vars Polaris set at launch.
+        std::set<pid_t> effective_baseline = baseline;
+        if (effective_baseline.empty() && (source == "heroic" || source == "lutris")) {
+          BOOST_LOG(info) << "game_exit_monitor: "sv << source
+                          << " cage launch — waiting for launcher workers before snapshotting baseline"sv;
+          // Allow enough time for the launcher (Electron/Python) and its helper processes
+          // to fully start, so they land in the snapshot and only the game is "new" after.
+          for (int i = 0; i < 5 && !stop->load(); ++i) {
+            std::this_thread::sleep_for(1s);
+          }
+          if (stop->load()) return;
+          auto snapshot = scan_proc_pids([](pid_t pid) { return kill(pid, 0) == 0; });
+          effective_baseline = {snapshot.begin(), snapshot.end()};
+          BOOST_LOG(info) << "game_exit_monitor: local baseline captured ("sv
+                          << effective_baseline.size() << " pids)"sv;
+        } else if (effective_baseline.empty()) {
+          BOOST_LOG(info) << "game_exit_monitor: resume mode — watching isolated session pids"sv;
+
+          // Give the session a moment to settle before first check.
+          std::this_thread::sleep_for(3s);
+          if (stop->load()) return;
+
+          // Wait up to 30s for isolated pids to appear (game might still be starting).
+          bool appeared = false;
+          for (int i = 0; i < 15 && !stop->load(); ++i) {
+            if (!isolated_session_pids().empty()) {
+              appeared = true;
+              break;
+            }
+            std::this_thread::sleep_for(2s);
+          }
+
+          if (!appeared) {
+            BOOST_LOG(info) << "game_exit_monitor: no isolated session processes found; ending stream"sv;
+            exited->store(true);
+            return;
+          }
+
+          BOOST_LOG(info) << "game_exit_monitor: isolated session processes running; watching for exit"sv;
+
+          int empty_scans = 0;
+          while (!stop->load()) {
+            std::this_thread::sleep_for(2s);
+            if (isolated_session_pids().empty()) {
+              if (++empty_scans >= kRequiredEmptyScans) {
+                BOOST_LOG(info) << "game_exit_monitor: isolated session processes gone; ending stream"sv;
+                exited->store(true);
+                return;
+              }
+            } else {
+              empty_scans = 0;
+            }
+          }
+          return;
+        }
+
+        // Fresh launch path: track user-owned processes that appeared after launch.
+        // Wait a few seconds for the launcher to hand off to the real game.
+        BOOST_LOG(info) << "game_exit_monitor: no Steam AppID detected; monitoring for post-launch processes"sv;
+        for (int i = 0; i < 5 && !stop->load(); ++i) {
+          std::this_thread::sleep_for(1s);
+        }
+        if (stop->load()) return;
+
+        // Discover stable new processes (present in two scans 3s apart = not transient).
+        // Try for up to 60 seconds in case the game takes a while to start.
+        // Launcher processes (heroic, lutris, …) are excluded so that closing
+        // the game ends the stream even if the launcher window stays open.
+        std::vector<pid_t> candidates;
+        for (int attempt = 0; attempt < 20 && !stop->load() && candidates.empty(); ++attempt) {
+          auto scan1 = scan_proc_pids([&effective_baseline, &source](pid_t pid) {
+            return effective_baseline.find(pid) == effective_baseline.end() && kill(pid, 0) == 0 &&
+                   !is_launcher_pid(pid, source);
+          });
+
+          if (!scan1.empty()) {
+            std::this_thread::sleep_for(3s);
+            if (stop->load()) return;
+
+            auto scan2 = scan_proc_pids([&effective_baseline, &source](pid_t pid) {
+              return effective_baseline.find(pid) == effective_baseline.end() && kill(pid, 0) == 0 &&
+                     !is_launcher_pid(pid, source);
+            });
+
+            // Keep only PIDs that survived both scans (stable game processes)
+            for (auto pid : scan1) {
+              if (std::find(scan2.begin(), scan2.end(), pid) != scan2.end()) {
+                candidates.push_back(pid);
+              }
+            }
+          } else {
+            std::this_thread::sleep_for(3s);
+          }
+        }
+
+        if (candidates.empty()) {
+          BOOST_LOG(info) << "game_exit_monitor: no post-launch processes found; ending stream"sv;
+          exited->store(true);
+          return;
+        }
+
+        BOOST_LOG(info) << "game_exit_monitor: tracking "sv << candidates.size() << " post-launch process(es)"sv;
+
+        int empty_scans = 0;
+        while (!stop->load()) {
+          std::this_thread::sleep_for(2s);
+          if (!std::any_of(candidates.begin(), candidates.end(), pid_exists)) {
+            if (++empty_scans >= kRequiredEmptyScans) {
+              BOOST_LOG(info) << "game_exit_monitor: all tracked processes have exited; ending stream"sv;
+              exited->store(true);
+              return;
+            }
+          } else {
+            empty_scans = 0;
+          }
+        }
+      }
+    }).detach();
   }
 #endif
 
@@ -3356,6 +3607,11 @@ namespace proc {
 #ifdef __linux__
       if (cage_started_with_detached_client) {
         BOOST_LOG(info) << "App command is empty; continuing with cage startup client"sv;
+        if (config::stream.terminate_stream_on_app_exit) {
+          BOOST_LOG(info) << "game_exit_monitor: starting for cage session ["sv << _app.name << ']';
+          start_game_exit_monitor();
+          _monitoring_game_exit = true;
+        }
       } else
 #endif
       {
@@ -3367,6 +3623,12 @@ namespace proc {
                                               find_working_directory(working_dir_cmd, launch_env) :
                                               boost::filesystem::path(_app.working_dir);
       BOOST_LOG(info) << "Executing: ["sv << effective_cmd << "] in ["sv << working_dir << ']';
+#ifdef __linux__
+      if (config::stream.terminate_stream_on_app_exit) {
+        auto baseline_vec = scan_proc_pids([](pid_t pid) { return kill(pid, 0) == 0; });
+        _pid_baseline = {baseline_vec.begin(), baseline_vec.end()};
+      }
+#endif
       _process = platf::run_command(_app.elevated, true, effective_cmd, working_dir, launch_env, _pipe.get(), ec, &_process_group);
       if (ec) {
         BOOST_LOG(warning) << "Couldn't run ["sv << effective_cmd << "]: System: "sv << ec.message();
@@ -3452,6 +3714,16 @@ namespace proc {
     });
 #endif
 
+#ifdef __linux__
+    // If a game exit monitor is running, check whether it has signalled completion.
+    // This check must come before the placebo guard below.
+    if (_monitoring_game_exit && _game_monitor_exited && _game_monitor_exited->load()) {
+      BOOST_LOG(info) << "Game exit monitor: game has closed; ending stream"sv;
+      terminate();
+      return 0;
+    }
+#endif
+
     if (placebo) {
       return _app_id;
     } else if (_app.wait_all && _process_group && platf::process_group_running((std::uintptr_t) _process_group.native_handle())) {
@@ -3461,6 +3733,17 @@ namespace proc {
       // The app is still running only if the initial process launched is still running
       return _app_id;
     } else if (_app.auto_detach && std::chrono::steady_clock::now() - _app_launch_time < 5s) {
+#ifdef __linux__
+      if (config::stream.terminate_stream_on_app_exit) {
+        // Instead of plain placebo, start a monitor thread that watches for the
+        // actual game process and signals when it exits.
+        BOOST_LOG(info) << "App exited within 5 seconds; starting game exit monitor"sv;
+        start_game_exit_monitor();
+        _monitoring_game_exit = true;
+        placebo = true;
+        return _app_id;
+      }
+#endif
       BOOST_LOG(info) << "App exited with code ["sv << _process.native_exit_code() << "] within 5 seconds of launch. Treating the app as a detached command."sv;
       BOOST_LOG(info) << "Adjust this behavior in the Applications tab or apps.json if this is not what you want."sv;
       placebo = true;
@@ -3484,6 +3767,19 @@ namespace proc {
 
   void proc_t::resume() {
     BOOST_LOG(info) << "Session resuming for app [" << _app_name << "].";
+
+#ifdef __linux__
+    // If the session is in placebo mode (launcher exited, game is running elsewhere)
+    // and the monitor hasn't been started yet, start it now. This covers the case
+    // where Polaris restarted and resumed a paused session — execute() was never
+    // called in this process instance so the monitor wasn't started there.
+    if (config::stream.terminate_stream_on_app_exit && placebo && !_monitoring_game_exit) {
+      BOOST_LOG(info) << "game_exit_monitor: starting on resume for app ["sv << _app_name << "]"sv;
+      start_game_exit_monitor();
+      _monitoring_game_exit = true;
+    }
+#endif
+
     _client_session_report_recorded = false;
     _client_session_report_recorded_at = {};
     _client_session_report_recorded_unique_id.clear();
@@ -3737,6 +4033,18 @@ namespace proc {
   void proc_t::terminate(bool immediate, bool needs_refresh) {
     std::error_code ec;
     placebo = false;
+
+#ifdef __linux__
+    // Signal any running game exit monitor to stop, then release the shared state.
+    // The monitor thread holds its own shared_ptr copies so it won't dangle.
+    if (_game_monitor_stop) {
+      _game_monitor_stop->store(true);
+    }
+    _monitoring_game_exit = false;
+    _game_monitor_stop.reset();
+    _game_monitor_exited.reset();
+    _pid_baseline.clear();
+#endif
 
     if (!immediate) {
       terminate_process_group(_process, _process_group, _app.exit_timeout);

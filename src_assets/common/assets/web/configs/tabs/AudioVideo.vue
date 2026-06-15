@@ -468,6 +468,24 @@ const validateFallbackMode = (event) => {
           </div>
         </div>
 
+        <div class="settings-subtle-surface">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-silver">{{ $t("config.terminate_stream_on_app_exit") }}</div>
+              <div class="mt-1 text-sm text-storm">{{ $t("config.terminate_stream_on_app_exit_desc") }}</div>
+            </div>
+            <label class="flex-shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                class="sr-only peer"
+                :checked="config.terminate_stream_on_app_exit === 'enabled'"
+                @change="config.terminate_stream_on_app_exit = $event.target.checked ? 'enabled' : 'disabled'"
+              >
+              <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+        </div>
+
         <AdapterNameSelector
           :platform="platform"
           :config="config"

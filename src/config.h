@@ -214,6 +214,10 @@ namespace config {
 
     // Maximum number of simultaneous streaming sessions (0 = unlimited)
     int max_sessions;
+
+    // When true, the stream ends as soon as the launched app command exits,
+    // even if it would normally be treated as a detached launcher (auto-detach).
+    bool terminate_stream_on_app_exit;
   };
 
   struct nvhttp_t {

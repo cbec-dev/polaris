@@ -634,6 +634,7 @@ namespace config {
     ENCRYPTION_MODE_OPPORTUNISTIC,  // wan_encryption_mode
 
     2,  // max_sessions (default 2 — allows a second viewer on the same stream)
+    false,  // terminate_stream_on_app_exit
   };
 
   nvhttp_t nvhttp {
@@ -1408,6 +1409,7 @@ namespace config {
     int_between_f(vars, "fec_percentage", stream.fec_percentage, {1, 255});
 
     int_between_f(vars, "max_sessions", stream.max_sessions, {0, 8});
+    bool_f(vars, "terminate_stream_on_app_exit", stream.terminate_stream_on_app_exit);
 
     map_int_int_f(vars, "keybindings"s, input.keybindings);
 

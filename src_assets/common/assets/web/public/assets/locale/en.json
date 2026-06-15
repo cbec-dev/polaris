@@ -324,6 +324,8 @@
     "dd_wa_hdr_toggle_delay": "High-contrast workaround for HDR",
     "disconnect_resume_timeout_seconds": "Disconnect Resume Timeout",
     "disconnect_resume_timeout_seconds_desc": "How long Polaris keeps an app paused after all clients disconnect so a client can reconnect and resume the session. Set 0 to terminate immediately.",
+    "terminate_stream_on_app_exit": "End Stream When App Closes",
+    "terminate_stream_on_app_exit_desc": "When enabled, Polaris ends the stream when the game closes — works for Steam games, other launchers, and games run directly. For Steam it tracks by Steam App ID; for other launchers it watches for stable post-launch processes. Disabled by default.",
     "double_refreshrate": "Double refresh rate for Virtual Display",
     "double_refreshrate_desc": "Double the requested refresh rate when creating virtual displays, streamed refresh rate still remain the same. Can potentially improve stutter problem on some systems.",
     "ds4_back_as_touchpad_click": "Map Back/Select to Touchpad Click",

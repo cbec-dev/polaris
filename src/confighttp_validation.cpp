@@ -199,6 +199,7 @@ namespace confighttp::validation {
       "steamgriddb_api_key"sv,
       "stream_audio"sv,
       "sunshine_name"sv,
+      "terminate_stream_on_app_exit"sv,
       "sw_preset"sv,
       "sw_tune"sv,
       "system_tray"sv,
