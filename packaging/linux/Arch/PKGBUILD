@@ -126,9 +126,9 @@ build() {
     export CFLAGS="${CFLAGS/-Werror=format-security/}"
     export CXXFLAGS="${CXXFLAGS/-Werror=format-security/}"
 
-    # GCC 15 plus Polaris' current Release workaround can conflict with Arch's
+    # GCC 15+ plus Polaris' current Release workaround can conflict with Arch's
     # injected fortify defines during makepkg validation rebuilds.
-    if [[ "$("${CXX}" -dumpfullversion | cut -d. -f1)" == "15" ]]; then
+    if [[ "$("${CXX}" -dumpfullversion | cut -d. -f1)" -ge "15" ]]; then
       local _filtered_cppflags=()
       local _filtered_cflags=()
       local _filtered_cxxflags=()

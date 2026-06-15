@@ -47,7 +47,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
             $<$<COMPILE_LANGUAGE:CXX>:
             -O0
             -U_FORTIFY_SOURCE
-            -D_FORTIFY_SOURCE=0
             -fno-lto
             -fno-unroll-loops
             -fno-tree-vectorize
@@ -168,7 +167,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
     set(GCC_RELEASE_ICE_WORKAROUND_FLAGS "")
     string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-O0 ")
     string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-U_FORTIFY_SOURCE ")
-    string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-D_FORTIFY_SOURCE=0 ")
     string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-fno-lto ")
     string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-fno-unroll-loops ")
     string(APPEND GCC_RELEASE_ICE_WORKAROUND_FLAGS "-fno-tree-vectorize ")
