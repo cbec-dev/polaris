@@ -276,20 +276,23 @@ TEST(CageDisplayRouterPolicyTests, MangoHudPrefixStillAppliesToRegularGames) {
   );
 }
 
-TEST(CageDisplayRouterPolicyTests, LabwcProcessEnvironmentDisablesHardwareCursors) {
+TEST(CageDisplayRouterPolicyTests, LabwcProcessEnvironmentDoesNotForceHardwareCursors) {
+  // WLR_NO_HARDWARE_CURSORS must not be forced; hardware cursors allow screencopy
+  // to suppress the cursor via overlay_cursor=0. Forcing software cursors bakes
+  // the cursor into the framebuffer before screencopy sees it, bypassing the flag.
   EXPECT_EQ(
     cage_display_router::labwc_process_environment_value_for_tests(
       true,
       "WLR_NO_HARDWARE_CURSORS"
     ),
-    "1"
+    ""
   );
   EXPECT_EQ(
     cage_display_router::labwc_process_environment_value_for_tests(
       false,
       "WLR_NO_HARDWARE_CURSORS"
     ),
-    "1"
+    ""
   );
 }
 

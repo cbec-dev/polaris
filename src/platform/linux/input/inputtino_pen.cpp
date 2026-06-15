@@ -19,7 +19,18 @@ using namespace std::literals;
 
 namespace platf::pen {
   void update(client_input_raw_t *raw, const touch_port_t &touch_port, const pen_input_t &pen) {
+    // No Wayland virtual pen protocol exists; fall back to virtual pointer in labwc mode.
     if (raw->global->wayland_input.should_block_host_fallback()) {
+      auto &wi = raw->global->wayland_input;
+      // pen.x/y are normalized [0,1] by input.cpp; move_abs expects pixel coords
+      wi.move_abs(touch_port, pen.x * touch_port.width, pen.y * touch_port.height);
+      const bool touching = pen.eventType == LI_TOUCH_EVENT_DOWN || pen.eventType == LI_TOUCH_EVENT_MOVE;
+      const bool lifting = pen.eventType == LI_TOUCH_EVENT_UP || pen.eventType == LI_TOUCH_EVENT_CANCEL;
+      if (touching) {
+        wi.button(BUTTON_LEFT, false);
+      } else if (lifting) {
+        wi.button(BUTTON_LEFT, true);
+      }
       return;
     }
 

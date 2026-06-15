@@ -139,13 +139,6 @@ namespace cage_display_router {
   }
 
   static std::string labwc_process_environment_value(bool headless, std::string_view key) {
-    if (key == "WLR_NO_HARDWARE_CURSORS") {
-      // Polaris captures the private labwc compositor, not the host desktop. On
-      // some wlroots/labwc stacks hardware cursors remain interactive but never
-      // appear in captured frames, so force wlroots to paint software cursors.
-      return "1";
-    }
-
     if (key == "WLR_BACKENDS") {
       return headless ? "headless" : "wayland";
     }
@@ -163,7 +156,6 @@ namespace cage_display_router {
 
   static void set_labwc_process_environment(bool headless) {
     for (std::string_view key : {
-           "WLR_NO_HARDWARE_CURSORS"sv,
            "WLR_BACKENDS"sv,
            "WLR_RENDERER"sv,
            "WLR_HEADLESS_OUTPUTS"sv,

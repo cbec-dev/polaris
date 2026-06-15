@@ -19,7 +19,34 @@ using namespace std::literals;
 
 namespace platf::touch {
   void update(client_input_raw_t *raw, const touch_port_t &touch_port, const touch_input_t &touch) {
+    // Wayland has no virtual touch protocol. When the labwc compositor is active,
+    // emulate the primary touch finger as virtual pointer events so taps reach
+    // the game inside labwc instead of falling through to the host KDE compositor.
     if (raw->global->wayland_input.should_block_host_fallback()) {
+      auto &wi = raw->global->wayland_input;
+      // touch.x/y are normalized [0,1] by input.cpp; move_abs expects pixel coords
+      const float px = touch.x * touch_port.width;
+      const float py = touch.y * touch_port.height;
+      switch (touch.eventType) {
+        case LI_TOUCH_EVENT_DOWN:
+          wi.move_abs(touch_port, px, py);
+          wi.button(BUTTON_LEFT, false);
+          break;
+        case LI_TOUCH_EVENT_MOVE:
+        case LI_TOUCH_EVENT_HOVER:
+          wi.move_abs(touch_port, px, py);
+          break;
+        case LI_TOUCH_EVENT_UP:
+        case LI_TOUCH_EVENT_HOVER_LEAVE:
+          wi.move_abs(touch_port, px, py);
+          wi.button(BUTTON_LEFT, true);
+          break;
+        case LI_TOUCH_EVENT_CANCEL:
+          wi.button(BUTTON_LEFT, true);
+          break;
+        default:
+          break;
+      }
       return;
     }
 
