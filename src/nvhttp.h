@@ -316,7 +316,8 @@ namespace nvhttp {
     const crypto::PERM newPerm,
     const bool enable_legacy_ordering,
     const bool allow_client_commands,
-    const bool always_use_virtual_display
+    const bool always_use_virtual_display,
+    const int ui_scale_percent
   );
 
 #ifdef POLARIS_TESTS

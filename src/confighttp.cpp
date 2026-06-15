@@ -2202,6 +2202,7 @@ namespace confighttp {
       bool enable_legacy_ordering = input_tree.value("enable_legacy_ordering", true);
       bool allow_client_commands = input_tree.value("allow_client_commands", true);
       bool always_use_virtual_display = input_tree.value("always_use_virtual_display", false);
+      int ui_scale_percent = std::clamp(input_tree.value("ui_scale_percent", 0), 0, 200);
       auto do_cmds = nvhttp::extract_command_entries(input_tree, "do");
       auto undo_cmds = nvhttp::extract_command_entries(input_tree, "undo");
       auto perm = static_cast<crypto::PERM>(input_tree.value("perm", static_cast<uint32_t>(crypto::PERM::_no)) & static_cast<uint32_t>(crypto::PERM::_all));
@@ -2215,7 +2216,8 @@ namespace confighttp {
         perm,
         enable_legacy_ordering,
         allow_client_commands,
-        always_use_virtual_display
+        always_use_virtual_display,
+        ui_scale_percent
       );
       send_response(response, output_tree);
     } catch (std::exception &e) {

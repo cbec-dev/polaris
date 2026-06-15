@@ -2698,6 +2698,7 @@ namespace nvhttp {
         named_cert_node["enable_legacy_ordering"] = named_cert_p->enable_legacy_ordering;
         named_cert_node["allow_client_commands"] = named_cert_p->allow_client_commands;
         named_cert_node["always_use_virtual_display"] = named_cert_p->always_use_virtual_display;
+        named_cert_node["ui_scale_percent"] = named_cert_p->ui_scale_percent;
 
         // Add "do" commands if available.
         if (!named_cert_p->do_cmds.empty()) {
@@ -2780,6 +2781,7 @@ namespace nvhttp {
             named_cert_p->enable_legacy_ordering = true;
             named_cert_p->allow_client_commands = true;
             named_cert_p->always_use_virtual_display = false;
+            named_cert_p->ui_scale_percent = 0;
             client.named_devices.emplace_back(named_cert_p);
           }
         }
@@ -2800,6 +2802,7 @@ namespace nvhttp {
         named_cert_p->enable_legacy_ordering = el.value("enable_legacy_ordering", true);
         named_cert_p->allow_client_commands = el.value("allow_client_commands", true);
         named_cert_p->always_use_virtual_display = el.value("always_use_virtual_display", false);
+        named_cert_p->ui_scale_percent = util::get_non_string_json_value<int>(el, "ui_scale_percent", 0);
         // Load command entries for "do" and "undo" keys.
         named_cert_p->do_cmds = extract_command_entries(el, "do");
         named_cert_p->undo_cmds = extract_command_entries(el, "undo");
@@ -2923,6 +2926,7 @@ namespace nvhttp {
     launch_session->user_locked_display_mode = !named_cert_p->display_mode.empty();
     launch_session->user_locked_virtual_display = client_display_mode_explicit || named_cert_p->always_use_virtual_display;
     launch_session->scale_factor = util::from_view(get_arg(args, "scaleFactor", "100"));
+    launch_session->ui_scale_percent = named_cert_p->ui_scale_percent;
     if (named_cert_p->target_bitrate_kbps > 0) {
       launch_session->paired_target_bitrate_kbps = named_cert_p->target_bitrate_kbps;
     } else {
@@ -3643,6 +3647,7 @@ namespace nvhttp {
       named_cert_node["enable_legacy_ordering"] = named_cert->enable_legacy_ordering;
       named_cert_node["allow_client_commands"] = named_cert->allow_client_commands;
       named_cert_node["always_use_virtual_display"] = named_cert->always_use_virtual_display;
+      named_cert_node["ui_scale_percent"] = named_cert->ui_scale_percent;
 
       // Add "do" commands if available
       if (!named_cert->do_cmds.empty()) {
@@ -4840,7 +4845,8 @@ namespace nvhttp {
             named_cert_p->perm,
             named_cert_p->enable_legacy_ordering,
             named_cert_p->allow_client_commands,
-            named_cert_p->always_use_virtual_display
+            named_cert_p->always_use_virtual_display,
+            named_cert_p->ui_scale_percent
           );
 
           if (!updated) {
@@ -5045,7 +5051,8 @@ namespace nvhttp {
             named_cert_p->perm,
             named_cert_p->enable_legacy_ordering,
             named_cert_p->allow_client_commands,
-            named_cert_p->always_use_virtual_display
+            named_cert_p->always_use_virtual_display,
+            named_cert_p->ui_scale_percent
           );
 
           if (!updated) {
@@ -6296,7 +6303,8 @@ namespace nvhttp {
     const crypto::PERM newPerm,
     const bool enable_legacy_ordering,
     const bool allow_client_commands,
-    const bool always_use_virtual_display
+    const bool always_use_virtual_display,
+    const int ui_scale_percent
   ) {
     find_and_udpate_session_info(uuid, name, newPerm);
 
@@ -6314,6 +6322,7 @@ namespace nvhttp {
         named_cert_p->enable_legacy_ordering = enable_legacy_ordering;
         named_cert_p->allow_client_commands = allow_client_commands;
         named_cert_p->always_use_virtual_display = always_use_virtual_display;
+        named_cert_p->ui_scale_percent = ui_scale_percent;
         save_state();
         return true;
       }

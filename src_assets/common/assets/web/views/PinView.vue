@@ -619,6 +619,23 @@
                       </div>
                     </div>
 
+                    <div class="md:col-span-2">
+                      <label :for="`ui-scale-${client.uuid}`" class="mb-1 block text-sm font-medium text-storm">
+                        {{ $t('pin.ui_scale_percent') }}:
+                        <span class="text-silver">{{ client.editUiScalePercent === 0 ? $t('pin.ui_scale_percent_default') : client.editUiScalePercent + '%' }}</span>
+                      </label>
+                      <input
+                        :id="`ui-scale-${client.uuid}`"
+                        v-model.number="client.editUiScalePercent"
+                        type="range"
+                        min="0"
+                        max="200"
+                        step="25"
+                        class="w-full accent-ice"
+                      />
+                      <div class="mt-1 text-sm text-storm">{{ $t('pin.ui_scale_percent_desc') }}</div>
+                    </div>
+
                     <div>
                       <label class="mb-1 block text-xs font-medium uppercase tracking-[0.18em] text-storm">{{ $t('pin.output_name') }}</label>
                       <input
@@ -1475,6 +1492,7 @@ function editClient(client) {
   client.editEnableLegacyOrdering = client.enable_legacy_ordering
   client.editAlwaysUseVirtualDisplay = client.always_use_virtual_display
   client.editDisplayMode = client.display_mode
+  client.editUiScalePercent = client.ui_scale_percent ?? 0
   client.edit_do = JSON.parse(JSON.stringify(client.do || []))
   client.edit_undo = JSON.parse(JSON.stringify(client.undo || []))
   const profile = profiles.value[client.name] || {}
@@ -1499,6 +1517,7 @@ function cancelEdit(client) {
   client.editAllowClientCommands = client.allow_client_commands
   client.editEnableLegacyOrdering = client.enable_legacy_ordering
   client.editAlwaysUseVirtualDisplay = client.always_use_virtual_display
+  client.editUiScalePercent = client.ui_scale_percent ?? 0
   dismissSuggestion()
   nextTick(() => {
     lastFocusedElement?.focus?.()

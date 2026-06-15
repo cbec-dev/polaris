@@ -613,7 +613,7 @@ namespace cage_display_router {
   // Public API
   // -----------------------------------------------------------------------
 
-  bool start(int width, int height, int refresh_hz, const std::string &game_cmd, bool force_windowed, bool allow_mangohud) {
+  bool start(int width, int height, int refresh_hz, const std::string &game_cmd, bool force_windowed, bool allow_mangohud, int ui_scale_percent) {
     const auto startup_begin = std::chrono::steady_clock::now();
 
     if (cage_pid > 0 && is_running()) {
@@ -671,6 +671,22 @@ namespace cage_display_router {
     std::string config_dir = std::string(getenv("HOME") ? getenv("HOME") : "/tmp") + "/.config/labwc-polaris";
     const std::string mode = format_wlr_custom_mode(width, height, refresh_hz);
 
+    // Build scale env var prefix using explicit integer arithmetic to avoid
+    // locale-dependent decimal separators (e.g. "1,50" in French locale).
+    std::string scale_env_prefix;
+    if (ui_scale_percent != 0 && ui_scale_percent != 100) {
+      int int_part = ui_scale_percent / 100;
+      int frac_part = ui_scale_percent % 100;
+      std::string scale_str = std::to_string(int_part) + "." +
+        (frac_part < 10 ? "0" : "") + std::to_string(frac_part);
+      scale_env_prefix =
+        "GDK_DPI_SCALE=" + scale_str + " "
+        "QT_SCALE_FACTOR=" + scale_str + " "
+        "STEAM_FORCE_DESKTOPUI_SCALING=" + scale_str + " ";
+      BOOST_LOG(info) << "labwc: Injecting UI scale env vars (scale=" << scale_str
+                      << ", " << ui_scale_percent << "%) — UI will appear larger, stream resolution unchanged";
+    }
+
     // Build startup command: set resolution then run the game
     // In headless mode, the output name is HEADLESS-1 instead of WL-1
     std::string output_name = headless ? "HEADLESS-1" : "WL-1";
@@ -686,29 +702,24 @@ namespace cage_display_router {
         mangohud_prefix = mangohud_prefix_for_command(game_cmd, allow_mangohud, mh, mhc ? mhc : "");
       }
     }
+    auto mode_retry_cmd =
+      "for i in $(seq 1 50); do "
+      "wlr-randr --output " + output_name + " --custom-mode " + mode + " >/dev/null 2>&1 && break; "
+      "sleep 0.1; "
+      "done; ";
     if (!game_cmd.empty()) {
-      auto mode_retry_cmd =
-        "for i in $(seq 1 50); do "
-        "wlr-randr --output " + output_name + " --custom-mode " + mode + " >/dev/null 2>&1 && break; "
-        "sleep 0.1; "
-        "done; ";
       if (headless) {
         // In headless mode: set resolution, ensure XWayland is ready, then launch game.
         // labwc with xwaylandPersistence=yes starts XWayland eagerly, but we still
         // need to wait for DISPLAY to be available before launching Steam.
         startup_cmd = mode_retry_cmd +
           "for i in $(seq 1 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; "
-          + mangohud_prefix + "exec " + game_cmd;
+          + scale_env_prefix + mangohud_prefix + "exec " + game_cmd;
       } else {
-        startup_cmd = mode_retry_cmd + mangohud_prefix + "exec " + game_cmd;
+        startup_cmd = mode_retry_cmd + scale_env_prefix + mangohud_prefix + "exec " + game_cmd;
       }
     } else {
-      startup_cmd =
-        "for i in $(seq 1 50); do "
-        "wlr-randr --output " + output_name + " --custom-mode " + mode + " >/dev/null 2>&1 && break; "
-        "sleep 0.1; "
-        "done; "
-        "exec sleep infinity";
+      startup_cmd = mode_retry_cmd + "exec sleep infinity";
     }
 
     // Snapshot existing sockets to detect the new one labwc creates

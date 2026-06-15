@@ -58,7 +58,8 @@ namespace cage_display_router {
     int refresh_hz = 60,
     const std::string &game_cmd = "",
     bool force_windowed = false,
-    bool allow_mangohud = true
+    bool allow_mangohud = true,
+    int ui_scale_percent = 0
   );
 
   /**

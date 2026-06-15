@@ -2278,7 +2278,6 @@ namespace proc {
     if (_app.scale_factor != 100) {
       scale_factor = _app.scale_factor;
     }
-
     if (scale_factor != 100) {
       render_width *= ((float)scale_factor / 100);
       render_height *= ((float)scale_factor / 100);
@@ -2910,7 +2909,7 @@ namespace proc {
         cage_display_router::stop();
       }
 
-      if (!cage_display_router::start(render_width, render_height, cage_refresh_hz, startup_cmd, force_windowed, allow_cage_mangohud)) {
+      if (!cage_display_router::start(render_width, render_height, cage_refresh_hz, startup_cmd, force_windowed, allow_cage_mangohud, launch_session->ui_scale_percent)) {
         return false;
       }
 

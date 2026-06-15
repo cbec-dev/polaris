@@ -113,6 +113,7 @@ namespace crypto {
     bool enable_legacy_ordering;
     bool allow_client_commands;
     bool always_use_virtual_display;
+    int ui_scale_percent = 0;
   };
 
   using p_named_cert_t = std::shared_ptr<named_cert_t>;
