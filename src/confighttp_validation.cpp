@@ -152,6 +152,8 @@ namespace confighttp::validation {
       "legacy_ordering"sv,
       "limit_framerate"sv,
       "linux_auto_manage_displays"sv,
+      "linux_cage_migrate_launcher"sv,
+      "linux_cage_restore_launcher"sv,
       "linux_capture_profile"sv,
       "linux_prefer_gpu_native_capture"sv,
       "linux_primary_output"sv,

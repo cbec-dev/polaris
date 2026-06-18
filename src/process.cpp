@@ -1038,6 +1038,146 @@ namespace proc {
       std::lock_guard lock(isolated_browser_stream_steam_cleanup_mutex);
       isolated_browser_stream_steam_settle_until = {};
     }
+
+    // Find all running processes for the given launcher source ("steam", "heroic", "lutris").
+    // Used before cage session startup to detect launchers still connected to the host compositor.
+    std::vector<pid_t> launcher_pids_running(const std::string &source) {
+      if (boost::iequals(source, "steam")) {
+        return scan_proc_pids([](pid_t pid) {
+          auto comm = ascii_lower_copy(read_proc_text(pid, "comm"));
+          boost::trim(comm);
+          const auto argv0 = proc_argv0_lower(read_proc_text(pid, "cmdline"));
+          return process_is_steam_client(comm, argv0);
+        });
+      }
+      if (boost::iequals(source, "heroic")) {
+        return scan_proc_pids([](pid_t pid) {
+          auto comm = ascii_lower_copy(read_proc_text(pid, "comm"));
+          boost::trim(comm);
+          const auto argv0 = proc_argv0_basename(proc_argv0_lower(read_proc_text(pid, "cmdline")));
+          return comm == "heroic" || argv0 == "heroic";
+        });
+      }
+      if (boost::iequals(source, "lutris")) {
+        return scan_proc_pids([](pid_t pid) {
+          auto comm = ascii_lower_copy(read_proc_text(pid, "comm"));
+          boost::trim(comm);
+          const auto argv0 = proc_argv0_basename(proc_argv0_lower(read_proc_text(pid, "cmdline")));
+          return comm == "lutris" || argv0 == "lutris";
+        });
+      }
+      return {};
+    }
+
+    // If a launcher that the app routes through (Steam, Heroic, Lutris) is already running on
+    // the host compositor when a cage session starts, IPC-based game launches (steam://rungameid/,
+    // heroic://launch/) will be intercepted by the host process and the game window will open on
+    // KDE instead of inside labwc. Shut the launcher down so the cage startup command can
+    // relaunch it inside the private compositor.
+    // Returns the source string of the launcher that was shut down, or empty if nothing was done.
+    std::string shutdown_host_launcher_for_cage(
+      const proc::ctx_t &app,
+      const boost::process::v1::environment &env,
+      FILE *pipe
+    ) {
+      // Determine which launcher (if any) this app routes through
+      const bool uses_steam = context_uses_steam(app);
+      const bool uses_heroic = boost::iequals(app.source, "heroic");
+      const bool uses_lutris = boost::iequals(app.source, "lutris");
+
+      if (!uses_steam && !uses_heroic && !uses_lutris) {
+        return {};
+      }
+
+      const std::string source = uses_steam ? "steam" : (uses_heroic ? "heroic" : "lutris");
+      const auto pids = launcher_pids_running(source);
+      if (pids.empty()) {
+        return {};
+      }
+
+      BOOST_LOG(info) << "cage: Launcher ["sv << source
+                      << "] is running on the host compositor ("sv << pids.size()
+                      << " process(es)); shutting down before cage session so it relaunches inside the stream compositor"sv;
+
+      if (uses_steam) {
+        // Steam supports a clean shutdown via -shutdown; prefer it over SIGTERM
+        const auto shutdown_cmd = canonical_steam_shutdown_command(steam_launch_reference_command(app));
+        std::error_code ec;
+        boost::filesystem::path working_dir;
+        auto child = platf::run_command(false, true, shutdown_cmd, working_dir, env, pipe, ec, nullptr);
+        if (!ec) {
+          child.wait();
+        }
+
+        // Wait up to 8 s for Steam to exit
+        const auto deadline = std::chrono::steady_clock::now() + 8s;
+        while (std::chrono::steady_clock::now() < deadline) {
+          if (launcher_pids_running("steam").empty()) {
+            BOOST_LOG(info) << "cage: Steam exited cleanly before cage session start"sv;
+            return source;
+          }
+          std::this_thread::sleep_for(100ms);
+        }
+
+        // Force-kill any survivor
+        auto remaining = launcher_pids_running("steam");
+        if (!remaining.empty()) {
+          BOOST_LOG(warning) << "cage: Steam did not exit after -shutdown ("sv << remaining.size()
+                             << " process(es) remaining); sending SIGTERM"sv;
+          signal_processes_and_groups(remaining, SIGTERM);
+          std::this_thread::sleep_for(1s);
+          remaining = launcher_pids_running("steam");
+          if (!remaining.empty()) {
+            BOOST_LOG(warning) << "cage: Steam still alive; sending SIGKILL"sv;
+            signal_processes_and_groups(remaining, SIGKILL);
+          }
+        }
+        return source;
+      }
+
+      // Heroic / Lutris: SIGTERM the process group, SIGKILL on timeout
+      signal_processes_and_groups(pids, SIGTERM);
+      const auto deadline = std::chrono::steady_clock::now() + 3s;
+      while (std::chrono::steady_clock::now() < deadline) {
+        if (launcher_pids_running(source).empty()) {
+          BOOST_LOG(info) << "cage: Launcher ["sv << source << "] exited before cage session start"sv;
+          return source;
+        }
+        std::this_thread::sleep_for(100ms);
+      }
+
+      auto remaining = launcher_pids_running(source);
+      if (!remaining.empty()) {
+        BOOST_LOG(warning) << "cage: Launcher ["sv << source
+                           << "] did not exit after SIGTERM; sending SIGKILL"sv;
+        signal_processes_and_groups(remaining, SIGKILL);
+      }
+      return source;
+    }
+
+    // Relaunch a previously-migrated launcher on the host compositor after a cage session ends.
+    // The launcher process is detached so Polaris doesn't wait for it.
+    void restore_host_launcher_after_cage(
+      const std::string &source,
+      const boost::process::v1::environment &env,
+      FILE *pipe
+    ) {
+      if (source != "steam") {
+        return;
+      }
+
+      BOOST_LOG(info) << "cage: Restoring Steam on host compositor after stream session ended"sv;
+
+      const std::string restore_cmd = "setsid -f steam -silent";
+      std::error_code ec;
+      boost::filesystem::path working_dir;
+      auto child = platf::run_command(false, true, restore_cmd, working_dir, env, pipe, ec, nullptr);
+      if (ec) {
+        BOOST_LOG(warning) << "cage: Failed to restore Steam: "sv << ec.message();
+        return;
+      }
+      child.detach();
+    }
 #endif
 
     void normalize_steam_big_picture_app(proc::ctx_t &ctx) {
@@ -2304,7 +2444,10 @@ namespace proc {
       session_state.lock_inhibited = true;
     }
 
-    // Cage start is deferred — it launches with the game command below
+    // Cage start is deferred — it launches with the game command below.
+    // _migrated_launcher_source is a proc_t member so terminate() can restore the launcher
+    // on both the success and failure teardown paths.
+    _migrated_launcher_source.clear();
 #endif
 
     // Executed when returning from function
@@ -2326,10 +2469,6 @@ namespace proc {
 #ifdef __linux__
       confighttp::set_session_state(confighttp::session_state_e::tearing_down);
       confighttp::emit_session_event("session_ending", "Cleaning up");
-      // Stop cage compositor (kills the game running inside it)
-      if (config::video.linux_display.use_cage_compositor) {
-        cage_display_router::stop();
-      }
       session_manager::restore_state(session_state);
 #endif
     });
@@ -2876,7 +3015,7 @@ namespace proc {
         cage_display_router::cached_headless_extcopy_dmabuf_probe_result() :
         std::optional<bool> {};
     bool force_windowed_cage_for_gpu_native = false;
-    const int cage_refresh_hz = std::max(pacing_target_fps, 1);
+    const int cage_refresh_hz = std::max(pacing_target_fps, 1) * (config::video.double_refreshrate ? 2 : 1);
 
     const int gpu_native_probe_fps = std::max(pacing_target_fps, 1);
     const video::config_t gpu_native_probe_config {
@@ -3103,6 +3242,14 @@ namespace proc {
 
     if (has_launch_commands) {
       input::preallocate_gamepad();
+    }
+
+    // If the app routes through a launcher (Steam, Heroic, Lutris) and that launcher is
+    // already running on the host compositor, shut it down before starting cage so it
+    // relaunches inside the private stream compositor.
+    if (config::video.linux_display.use_cage_compositor &&
+        config::video.linux_display.cage_migrate_launcher) {
+      _migrated_launcher_source = shutdown_host_launcher_for_cage(_app, _env, _pipe.get());
     }
 
     // Start cage with the first detached command as its primary client.
@@ -3685,6 +3832,13 @@ namespace proc {
     // Skip if a virtual display was created (it will be destroyed below).
     if (!linux_vdisplay.has_value() || !linux_vdisplay->active) {
       linux_display::disable_streaming_display();
+    }
+
+    // Restore any launcher that was migrated to the cage compositor at session start.
+    // Runs here (after undo commands, before pipe reset) on both normal and error teardown paths.
+    if (config::video.linux_display.cage_restore_launcher && !_migrated_launcher_source.empty()) {
+      restore_host_launcher_after_cage(_migrated_launcher_source, _env, nullptr);
+      _migrated_launcher_source.clear();
     }
 #endif
 

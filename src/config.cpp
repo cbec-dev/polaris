@@ -590,6 +590,8 @@ namespace config {
       false,  // linux_display.headless_mode
       false,  // linux_display.prefer_gpu_native_capture
       false,  // linux_display.capture_profile
+      false,  // linux_display.cage_migrate_launcher
+      false,  // linux_display.cage_restore_launcher
     },  // linux_display
 
     "1920x1080x60",  // fallback_mode
@@ -1338,6 +1340,8 @@ namespace config {
     bool_f(vars, "headless_mode", video.linux_display.headless_mode);
     bool_f(vars, "linux_prefer_gpu_native_capture", video.linux_display.prefer_gpu_native_capture);
     bool_f(vars, "linux_capture_profile", video.linux_display.capture_profile);
+    bool_f(vars, "linux_cage_migrate_launcher", video.linux_display.cage_migrate_launcher);
+    bool_f(vars, "linux_cage_restore_launcher", video.linux_display.cage_restore_launcher);
 
     string_f(vars, "fallback_mode", video.fallback_mode);
     bool_f(vars, "isolated_virtual_display_option", video.isolated_virtual_display_option);

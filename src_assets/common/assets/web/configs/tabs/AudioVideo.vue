@@ -421,6 +421,23 @@ const validateFallbackMode = (event) => {
                   <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
                 </label>
               </div>
+
+              <div class="surface-muted p-4">
+                <div class="text-sm font-medium text-silver">Double refresh rate</div>
+                <div class="mt-1 text-sm text-storm">Double the compositor virtual display refresh rate (e.g. a 120 Hz client request creates a 240 Hz output). Streamed frame rate stays the same. Can reduce stutter on some systems.</div>
+                <div class="mt-3 rounded bg-deep/60 px-2 py-1 font-mono text-xs text-storm">double_refreshrate</div>
+                <label class="mt-4 flex items-center justify-between gap-4">
+                  <span class="text-xs uppercase tracking-[0.18em] text-storm">Experimental</span>
+                  <input
+                    type="checkbox"
+                    class="sr-only peer"
+                    :checked="config.double_refreshrate === 'enabled'"
+                    @change="config.double_refreshrate = $event.target.checked ? 'enabled' : 'disabled'"
+                  >
+                  <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+                </label>
+              </div>
+
             </div>
           </details>
         </div>

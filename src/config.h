@@ -164,6 +164,8 @@ namespace config {
       bool headless_mode;            ///< Run labwc with headless backend (no visible window on desktop)
       bool prefer_gpu_native_capture;  ///< Prefer a GPU-native DMA-BUF path even if that requires windowed labwc
       bool capture_profile;          ///< Emit periodic transport-tagged capture timing summaries
+      bool cage_migrate_launcher;    ///< Shut down host launcher (Steam/Heroic/Lutris) before cage session so it relaunches inside the stream compositor
+      bool cage_restore_launcher;    ///< Relaunch host launcher on the KDE compositor after the stream session ends
     } linux_display;
 
     std::string fallback_mode;

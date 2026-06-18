@@ -165,6 +165,53 @@ const config = ref(props.config)
       </div>
       </div>
     </details>
+
+    <details class="settings-section settings-section-compact settings-disclosure">
+      <summary class="settings-disclosure-summary">
+        <div>
+          <div class="section-kicker">Launcher migration</div>
+          <h3 class="settings-section-title mt-2">Compositor handoff for Steam, Heroic, and Lutris</h3>
+          <div class="settings-summary-copy">When a launcher is already running on the desktop compositor, game launch IPC calls go to the existing process and games open on the wrong display. These options migrate the launcher into the stream session and optionally restore it afterward.</div>
+        </div>
+        <svg class="settings-disclosure-chevron h-4 w-4 text-storm" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19 9-7 7-7-7" /></svg>
+      </summary>
+
+      <div class="settings-disclosure-body">
+        <div class="grid gap-3 xl:grid-cols-2">
+          <div class="surface-muted p-4">
+            <div class="text-sm font-medium text-silver">Migrate launcher to stream compositor</div>
+            <div class="mt-1 text-sm text-storm">Shut down the launcher before the private compositor starts so it relaunches inside the stream session.</div>
+            <div class="mt-3 rounded bg-deep/60 px-2 py-1 font-mono text-xs text-storm">linux_cage_migrate_launcher</div>
+            <label class="mt-4 flex items-center justify-between gap-4">
+              <span class="text-xs uppercase tracking-[0.18em] text-storm">On stream start</span>
+              <input
+                type="checkbox"
+                class="sr-only peer"
+                :checked="config.linux_cage_migrate_launcher === 'enabled'"
+                @change="config.linux_cage_migrate_launcher = $event.target.checked ? 'enabled' : 'disabled'"
+              >
+              <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+
+          <div class="surface-muted p-4">
+            <div class="text-sm font-medium text-silver">Restore launcher after stream</div>
+            <div class="mt-1 text-sm text-storm">After the stream session ends, relaunch Steam silently to the system tray on the desktop compositor. Only has effect when migration is also enabled.</div>
+            <div class="mt-3 rounded bg-deep/60 px-2 py-1 font-mono text-xs text-storm">linux_cage_restore_launcher</div>
+            <label class="mt-4 flex items-center justify-between gap-4">
+              <span class="text-xs uppercase tracking-[0.18em] text-storm">On stream end</span>
+              <input
+                type="checkbox"
+                class="sr-only peer"
+                :checked="config.linux_cage_restore_launcher === 'enabled'"
+                @change="config.linux_cage_restore_launcher = $event.target.checked ? 'enabled' : 'disabled'"
+              >
+              <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </details>
   </div>
 </template>
 

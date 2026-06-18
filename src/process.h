@@ -17,7 +17,9 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string_view>
+#include <thread>
 #include <unordered_set>
 #include <unordered_map>
 
@@ -71,8 +73,7 @@ namespace proc {
 
 #if defined(POLARIS_TESTS) && defined(__linux__)
   bool cage_mangohud_allowed_for_session_for_tests(const struct ctx_t &app,
-                                                   bool use_cage_compositor,
-                                                   bool requested_headless);
+                                                   bool use_cage_compositor);
   bool should_skip_steam_shutdown_undo_after_cage_cleanup_for_tests(const struct ctx_t &app,
                                                                    const config::prep_cmd_t &cmd,
                                                                    bool use_cage_compositor);
@@ -135,6 +136,7 @@ namespace proc {
     bool per_client_app_identity;
     bool allow_client_commands;
     bool terminate_on_pause;
+    bool disable_fps_limit;
     int  scale_factor;
     std::chrono::seconds exit_timeout;
   };
@@ -224,6 +226,22 @@ namespace proc {
     bool _client_session_report_recorded = false;
     std::chrono::steady_clock::time_point _client_session_report_recorded_at {};
     std::string _client_session_report_recorded_unique_id;
+
+#ifdef __linux__
+    // Baseline PIDs captured just before the main app command is launched,
+    // used by the game exit monitor to distinguish game processes from background ones.
+    std::set<pid_t> _pid_baseline;
+    // Shared flags owned by proc_t; the monitor thread holds its own shared_ptr copies
+    // so they remain valid even if proc_t resets them mid-flight.
+    std::shared_ptr<std::atomic_bool> _game_monitor_stop;
+    std::shared_ptr<std::atomic_bool> _game_monitor_exited;
+    bool _monitoring_game_exit {false};
+    void start_game_exit_monitor();
+
+    // Set when a host launcher is shut down for cage migration; cleared after restore.
+    // Stored as a member so terminate() can restore the launcher on the normal teardown path.
+    std::string _migrated_launcher_source;
+#endif
   };
 
   boost::filesystem::path

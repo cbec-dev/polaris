@@ -386,6 +386,8 @@ const tabs = ref([
       "linux_use_cage_compositor": "disabled",
       "linux_prefer_gpu_native_capture": "disabled",
       "linux_capture_profile": "disabled",
+      "linux_cage_migrate_launcher": "disabled",
+      "linux_cage_restore_launcher": "disabled",
       "double_refreshrate": "disabled",
       "max_bitrate": 0,
       "minimum_fps_target": 0,
