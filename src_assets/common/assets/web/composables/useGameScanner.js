@@ -63,6 +63,8 @@ export function useGameScanner() {
             runner: g.runner || '',
             cmd: g.cmd || '',
             image_path: g.image_path || g['image-path'] || g.cover_path || '',
+            cover_url: g.cover_url || '',
+            app_name: g.app_name || '',
             game_category: g.game_category || '',
             genres: g.genres || []
           }))

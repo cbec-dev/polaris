@@ -1613,49 +1613,29 @@ function showCoverFinder() {
   coverSearching.value = true
   coverFinderOpen.value = true
 
-  function getSearchBucket(name) {
-    let bucket = name.substring(0, Math.min(name.length, 2)).toLowerCase().replaceAll(/[^a-z\d]/g, '')
-    if (!bucket) return '@'
-    return bucket
+  const name = editForm.value["name"].toString().trim()
+  if (!name) {
+    coverSearching.value = false
+    return
   }
 
-  function searchCovers(name) {
-    if (!name) return Promise.resolve([])
-    let searchName = name.replaceAll(/\s+/g, '.').toLowerCase()
-    let dbUrl = "https://raw.githubusercontent.com/LizardByte/GameDB/gh-pages"
-    let bucket = getSearchBucket(name)
-    return fetch(`${dbUrl}/buckets/${bucket}.json`).then(function (r) {
-      if (!r.ok) throw new Error("Failed to search covers")
-      return r.json()
-    }).then(maps => Promise.all(Object.keys(maps).map(id => {
-      let item = maps[id]
-      if (item.name.replaceAll(/\s+/g, '.').toLowerCase().startsWith(searchName)) {
-        return fetch(`${dbUrl}/games/${id}.json`).then(function (r) {
-          return r.json()
-        }).catch(() => null)
-      }
-      return null
-    }).filter(item => item)))
-      .then(results => results
-        .filter(item => item && item.cover && item.cover.url)
-        .map(game => {
-          const thumb = game.cover.url
-          const dotIndex = thumb.lastIndexOf('.')
-          const slashIndex = thumb.lastIndexOf('/')
-          if (dotIndex < 0 || slashIndex < 0) return null
-          const slug = thumb.substring(slashIndex + 1, dotIndex)
-          return {
-            name: game.name,
-            key: `igdb_${game.id}`,
-            url: `https://images.igdb.com/igdb/image/upload/t_cover_big/${slug}.jpg`,
-            saveUrl: `https://images.igdb.com/igdb/image/upload/t_cover_big_2x/${slug}.png`,
-          }
-        }).filter(item => item))
-  }
-
-  searchCovers(editForm.value["name"].toString().trim())
-    .then(list => coverCandidates.value = list)
-    .finally(() => coverSearching.value = false)
+  fetch(`./api/covers/search?name=${encodeURIComponent(name)}`, {
+    credentials: 'include',
+  }).then(r => {
+    if (!r.ok) throw new Error("Search failed")
+    return r.json()
+  }).then(body => {
+    if (body.covers && body.covers.length > 0) {
+      coverCandidates.value = body.covers.map(c => ({
+        name: body.game_name || name,
+        key: c.url,
+        url: c.thumb || c.url,
+        saveUrl: c.url,
+      }))
+    }
+  }).catch(e => {
+    console.error("Cover search failed:", e)
+  }).finally(() => coverSearching.value = false)
 }
 
 function closeCoverFinder() {
@@ -1664,16 +1644,16 @@ function closeCoverFinder() {
 
 function useCover(cover) {
   coverFinderBusy.value = true
-  fetch("./api/covers/upload", {
+  fetch("./api/covers/download", {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
     body: JSON.stringify({
-      key: cover.key,
       url: cover.saveUrl,
+      app_uuid: editForm.value.uuid || '',
     })
   }).then(r => {
-    if (!r.ok) throw new Error("Failed to download covers")
+    if (!r.ok) throw new Error("Failed to download cover")
     return r.json()
   }).then(body => editForm.value["image-path"] = body.path)
     .then(() => closeCoverFinder())

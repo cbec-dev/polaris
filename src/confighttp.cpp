@@ -611,7 +611,7 @@ namespace confighttp {
       headers.emplace("Referrer-Policy", "no-referrer");
       headers.emplace("Permissions-Policy", "camera=(), microphone=(), geolocation=(), usb=(), payment=()");
       headers.emplace("Strict-Transport-Security", "max-age=31536000");
-      headers.emplace("Content-Security-Policy", std::format("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*:{} https://*:{}; font-src 'self'; frame-ancestors 'none';", browser_stream::default_webtransport_port, client_settings_endpoint_https_port()));
+      headers.emplace("Content-Security-Policy", std::format("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.steamgriddb.com; connect-src 'self' https://*:{} https://*:{}; font-src 'self'; frame-ancestors 'none';", browser_stream::default_webtransport_port, client_settings_endpoint_https_port()));
     }
 
     void append_json_security_headers(SimpleWeb::CaseInsensitiveMultimap &headers) {
@@ -1960,6 +1960,8 @@ namespace confighttp {
       std::vector<std::pair<std::string, std::string>> heroic_cache_paths;
       for (const auto &home : home_roots) {
         heroic_cache_paths.emplace_back((home / ".config/heroic/store_cache/gog_library.json").string(), "gog");
+        // Heroic names the Epic cache "legendary_library.json"; "egs_library.json" is kept as a fallback
+        heroic_cache_paths.emplace_back((home / ".config/heroic/store_cache/legendary_library.json").string(), "epic");
         heroic_cache_paths.emplace_back((home / ".config/heroic/store_cache/egs_library.json").string(), "epic");
       }
       for (const auto &[path, store] : heroic_cache_paths) {
@@ -1973,10 +1975,19 @@ namespace confighttp {
             std::string app_name = entry.value("app_name", "");
             std::string title = entry.value("title", entry.value("app_name", ""));
             if (title.empty() || app_name.empty()) continue;
-            // Skip if already found from installed.json
+
+            std::string cover_url = entry.value("art_square", entry.value("art_cover", ""));
+
+            // If already found from installed.json, backfill cover_url and move on
             bool dup = false;
-            for (const auto &existing : heroic_games) {
-              if (existing["app_name"] == app_name) { dup = true; break; }
+            for (auto &existing : heroic_games) {
+              if (existing["app_name"] == app_name) {
+                dup = true;
+                if (!cover_url.empty() && !existing.contains("cover_url")) {
+                  existing["cover_url"] = cover_url;
+                }
+                break;
+              }
             }
             if (dup) continue;
             if (!entry.value("is_installed", false)) continue;
@@ -1991,6 +2002,9 @@ namespace confighttp {
             game["cmd"] = launch_cmd;
             game["source"] = "heroic";
             game["already_imported"] = already;
+            if (!cover_url.empty()) {
+              game["cover_url"] = cover_url;
+            }
             heroic_games.push_back(game);
           }
         } catch (...) {}
@@ -2109,6 +2123,43 @@ namespace confighttp {
           std::string cmd = game.value("cmd", "");
           if (!cmd.empty()) {
             app["detached"] = nlohmann::json::array({ cmd });
+          }
+
+          std::string cover_url = game.value("cover_url", "");
+          if (!cover_url.empty()) {
+            const std::string coverdir = platf::appdata().string() + "/covers/";
+            file_handler::make_directory(coverdir);
+            std::string heroic_app_name = game.value("app_name", "");
+            std::string stem = "heroic_" + heroic_app_name;
+            const fs::path cover_path = fs::path(coverdir) / (stem + safe_cover_extension_from_url(cover_url));
+            if (http::download_file(cover_url, cover_path.string())) {
+              // CDN URLs often have no extension, so the saved file may have the wrong one.
+              // Sniff the actual format and rename to match so validate_app_image_path accepts it.
+              fs::path actual_path = cover_path;
+              std::ifstream probe(cover_path, std::ios::binary);
+              if (probe) {
+                std::array<unsigned char, 12> hdr {};
+                probe.read(reinterpret_cast<char *>(hdr.data()), static_cast<std::streamsize>(hdr.size()));
+                const auto n = static_cast<size_t>(probe.gcount());
+                probe.close();
+                std::string detected;
+                if (n >= 3 && hdr[0] == 0xFF && hdr[1] == 0xD8 && hdr[2] == 0xFF) {
+                  detected = ".jpg";
+                } else if (n >= 8 && hdr[0] == 0x89 && hdr[1] == 0x50 && hdr[2] == 0x4E && hdr[3] == 0x47) {
+                  detected = ".png";
+                } else if (n >= 12 && hdr[0] == 'R' && hdr[1] == 'I' && hdr[2] == 'F' && hdr[3] == 'F' &&
+                           hdr[8] == 'W' && hdr[9] == 'E' && hdr[10] == 'B' && hdr[11] == 'P') {
+                  detected = ".webp";
+                }
+                if (!detected.empty() && detected != cover_path.extension().string()) {
+                  fs::path corrected = fs::path(coverdir) / (stem + detected);
+                  std::error_code ec;
+                  fs::rename(cover_path, corrected, ec);
+                  if (!ec) actual_path = corrected;
+                }
+              }
+              app["image-path"] = actual_path.string();
+            }
           }
         }
 
@@ -2788,6 +2839,13 @@ namespace confighttp {
           ++it;
         }
       }
+      if (input_tree.contains("clear_steamgriddb_api_key")) {
+        const bool should_clear = input_tree.value("clear_steamgriddb_api_key", false);
+        input_tree.erase("clear_steamgriddb_api_key");
+        if (should_clear) {
+          input_tree["steamgriddb_api_key"] = "";
+        }
+      }
       if (input_tree.contains("ai_enabled") || input_tree.contains("adaptive_bitrate_enabled")) {
         const bool has_ai_enabled = input_tree.contains("ai_enabled");
         const bool has_adaptive_enabled = input_tree.contains("adaptive_bitrate_enabled");
@@ -2957,10 +3015,19 @@ namespace confighttp {
 
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     SimpleWeb::CaseInsensitiveMultimap headers;
-    const auto content_type =
-      extension == ".jpg" || extension == ".jpeg" ? "image/jpeg" :
-      extension == ".webp" ? "image/webp" :
-      "image/png";
+    // Detect actual image format from magic bytes rather than trusting the extension,
+    // since CDN downloads may arrive as JPEG regardless of the saved filename extension.
+    std::string content_type = "image/png";
+    if (content.size() >= 3 &&
+        (unsigned char)content[0] == 0xFF &&
+        (unsigned char)content[1] == 0xD8 &&
+        (unsigned char)content[2] == 0xFF) {
+      content_type = "image/jpeg";
+    } else if (content.size() >= 12 &&
+               content.substr(0, 4) == "RIFF" &&
+               content.substr(8, 4) == "WEBP") {
+      content_type = "image/webp";
+    }
     headers.emplace("Content-Type", content_type);
     headers.emplace("Cache-Control", "max-age=86400");
     response->write(content, headers);
@@ -3093,9 +3160,9 @@ namespace confighttp {
 
       std::string url = body.value("url", "");
       std::string app_uuid = body.value("app_uuid", "");
-      if (url.empty() || app_uuid.empty()) {
+      if (url.empty()) {
         output["status"] = false;
-        output["error"] = "url and app_uuid required";
+        output["error"] = "url required";
         send_response(response, output);
         return;
       }
@@ -3111,7 +3178,8 @@ namespace confighttp {
 
       const std::string coverdir = platf::appdata().string() + "/covers/";
       file_handler::make_directory(coverdir);
-      std::string cover_path = coverdir + app_uuid + safe_cover_extension_from_url(url);
+      std::string filename = app_uuid.empty() ? ("sgdb_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())) : app_uuid;
+      std::string cover_path = coverdir + filename + safe_cover_extension_from_url(url);
 
       if (!http::download_file(url, cover_path)) {
         output["status"] = false;
@@ -3120,18 +3188,20 @@ namespace confighttp {
         return;
       }
 
-      // Update the app's image-path in apps.json
-      std::string content = file_handler::read_file(config::stream.file_apps.c_str());
-      auto file_tree = nlohmann::json::parse(content);
-      if (file_tree.contains("apps") && file_tree["apps"].is_array()) {
-        for (auto &app : file_tree["apps"]) {
-          if (app.value("uuid", "") == app_uuid) {
-            app["image-path"] = cover_path;
-            break;
+      // Update the app's image-path in apps.json if UUID was provided
+      if (!app_uuid.empty()) {
+        std::string content = file_handler::read_file(config::stream.file_apps.c_str());
+        auto file_tree = nlohmann::json::parse(content);
+        if (file_tree.contains("apps") && file_tree["apps"].is_array()) {
+          for (auto &app : file_tree["apps"]) {
+            if (app.value("uuid", "") == app_uuid) {
+              app["image-path"] = cover_path;
+              break;
+            }
           }
+          file_handler::write_file(config::stream.file_apps.c_str(), file_tree.dump(4));
+          proc::refresh(config::stream.file_apps);
         }
-        file_handler::write_file(config::stream.file_apps.c_str(), file_tree.dump(4));
-        proc::refresh(config::stream.file_apps);
       }
 
       output["status"] = true;
