@@ -115,6 +115,8 @@
     "save_order": "Save Order",
     "terminate_on_pause": "Terminate on Pause",
     "terminate_on_pause_desc": "Terminate the app when all clients are disconnected.",
+    "disable_fps_limit": "Disable FPS Limit",
+    "disable_fps_limit_desc": "Skip the automatic FPS cap injected by session pacing (DXVK_FRAME_RATE and MangoHud fps_limit). Use for games with frame generation or an in-game FPS cap.",
     "use_app_identity": "Use App Identity",
     "use_app_identity_desc": "Use the app's own identity while creating virtual displays instead of client's. This is useful when you want display configuration for each APP separately.",
     "virtual_display": "Always create Virtual Display",

@@ -1755,34 +1755,15 @@ namespace proc {
       return value != "0" && value != "false" && value != "off" && value != "no";
     }
 
-    bool app_env_flag_enabled(const proc::ctx_t &app, const std::string &key) {
-      const auto it = app.env_vars.find(key);
-      if (it == app.env_vars.end()) {
-        return false;
-      }
-
-      const auto value = normalized_json_string(it->second);
-      if (value.empty()) {
-        return false;
-      }
-
-      return value != "0" && value != "false" && value != "off" && value != "no";
-    }
-
 #ifdef __linux__
     bool cage_mangohud_allowed_for_session(const proc::ctx_t &app,
-                                           bool use_cage_compositor,
-                                           bool requested_headless) {
+                                           bool use_cage_compositor) {
       if (!use_cage_compositor) {
         return true;
       }
 
       if (is_steam_big_picture_app(app)) {
         return false;
-      }
-
-      if (requested_headless) {
-        return app_env_flag_enabled(app, "MANGOHUD");
       }
 
       return true;
@@ -1840,9 +1821,8 @@ namespace proc {
 
 #if defined(POLARIS_TESTS) && defined(__linux__)
   bool cage_mangohud_allowed_for_session_for_tests(const proc::ctx_t &app,
-                                                   bool use_cage_compositor,
-                                                   bool requested_headless) {
-    return cage_mangohud_allowed_for_session(app, use_cage_compositor, requested_headless);
+                                                   bool use_cage_compositor) {
+    return cage_mangohud_allowed_for_session(app, use_cage_compositor);
   }
 
   bool should_skip_steam_shutdown_undo_after_cage_cleanup_for_tests(const proc::ctx_t &app,
@@ -2887,8 +2867,7 @@ namespace proc {
 #ifdef __linux__
     const bool allow_cage_mangohud = cage_mangohud_allowed_for_session(
       _app,
-      config::video.linux_display.use_cage_compositor,
-      config::video.linux_display.headless_mode
+      config::video.linux_display.use_cage_compositor
     );
 #else
     constexpr bool allow_cage_mangohud = true;
@@ -2902,17 +2881,17 @@ namespace proc {
     }
 
     if (enable_session_pacing) {
-      if (env_value(_app, _env, "DXVK_FRAME_RATE").empty()) {
+      if (!_app.disable_fps_limit && env_value(_app, _env, "DXVK_FRAME_RATE").empty()) {
         set_session_env_var(_env, _session_env_keys, "DXVK_FRAME_RATE", std::to_string(pacing_target_fps));
       }
 
-      const int requested_fps = launch_session->requested_fps >= 1000 ?
-        static_cast<int>(std::round(static_cast<double>(launch_session->requested_fps) / 1000.0)) :
-        launch_session->requested_fps;
       bool auto_mangohud_cap = false;
-      if (allow_cage_mangohud &&
+      // Only auto-inject MangoHud to apply the hidden FPS cap. When the app opts out of
+      // the cap there is nothing to apply, so skip the auto-injection. An explicit
+      // MANGOHUD=1 on the app still shows the overlay below (without an fps_limit).
+      if (!_app.disable_fps_limit &&
+          allow_cage_mangohud &&
           pacing_target_fps > 0 &&
-          (requested_fps <= 0 || pacing_target_fps + 1 < requested_fps) &&
           env_value(_app, _env, "MANGOHUD").empty()) {
         set_session_env_var(_env, _session_env_keys, "MANGOHUD", "1");
         set_session_env_var(_env, _session_env_keys, "MANGOHUD_DLSYM", "1");
@@ -2925,11 +2904,25 @@ namespace proc {
         }
 
         auto mangohud_config = env_value(_app, _env, "MANGOHUD_CONFIG");
-        if (mangohud_config.find("fps_limit=") == std::string::npos) {
+        if (!_app.disable_fps_limit) {
+          if (mangohud_config.find("fps_limit=") == std::string::npos) {
+            if (!mangohud_config.empty() && mangohud_config.back() != ',') {
+              mangohud_config += ',';
+            }
+            mangohud_config += "fps_limit=" + std::to_string(pacing_target_fps);
+          }
+          if (mangohud_config.find("fps_limit_method=") == std::string::npos) {
+            if (!mangohud_config.empty() && mangohud_config.back() != ',') {
+              mangohud_config += ',';
+            }
+            mangohud_config += "fps_limit_method=early";
+          }
+        }
+        if (mangohud_config.find("fps_limit_method=") == std::string::npos) {
           if (!mangohud_config.empty() && mangohud_config.back() != ',') {
             mangohud_config += ',';
           }
-          mangohud_config += "fps_limit=" + std::to_string(pacing_target_fps);
+          mangohud_config += "fps_limit_method=early";
         }
         if (auto_mangohud_cap && mangohud_config.find("no_display") == std::string::npos) {
           if (!mangohud_config.empty() && mangohud_config.back() != ',') {
@@ -4757,6 +4750,7 @@ namespace proc {
           ctx.per_client_app_identity = app_node.value("per-client-app-identity", false);
           ctx.allow_client_commands = app_node.value("allow-client-commands", true);
           ctx.terminate_on_pause = app_node.value("terminate-on-pause", false);
+          ctx.disable_fps_limit = app_node.value("disable-fps-limit", false);
           ctx.gamepad = app_node.value("gamepad", "");
           ctx.steam_appid = app_node.value("steam-appid", "");
           ctx.steam_launch_mode = proc::normalize_steam_launch_mode(app_node.value("steam-launch-mode", "direct"));

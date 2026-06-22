@@ -143,17 +143,16 @@ TEST(ProcessRuntimeConfigTests, InitialTerminateDoesNotResetAdaptiveBitrateMax) 
 }
 
 #ifdef __linux__
-TEST(ProcessRuntimeConfigTests, DirectHeadlessCageSuppressesInheritedMangoHud) {
+TEST(ProcessRuntimeConfigTests, CageMangoHudAllowedForRegularSteamGame) {
   proc::ctx_t app {};
   app.name = "Portal";
   app.source = "steam";
   app.steam_appid = "400";
   app.detached = {"setsid steam steam://rungameid/400"};
 
-  EXPECT_FALSE(proc::cage_mangohud_allowed_for_session_for_tests(app, true, true));
-
-  app.env_vars["MANGOHUD"] = "1";
-  EXPECT_TRUE(proc::cage_mangohud_allowed_for_session_for_tests(app, true, true));
+  // MangoHud is allowed for regular Steam games regardless of whether the
+  // user explicitly opted in — auto fps-cap uses no_display to hide the overlay.
+  EXPECT_TRUE(proc::cage_mangohud_allowed_for_session_for_tests(app, true));
 }
 
 TEST(ProcessRuntimeConfigTests, SteamBigPictureNeverAllowsCageMangoHud) {
@@ -162,7 +161,7 @@ TEST(ProcessRuntimeConfigTests, SteamBigPictureNeverAllowsCageMangoHud) {
   app.detached = {"setsid steam -gamepadui"};
   app.env_vars["MANGOHUD"] = "1";
 
-  EXPECT_FALSE(proc::cage_mangohud_allowed_for_session_for_tests(app, true, true));
+  EXPECT_FALSE(proc::cage_mangohud_allowed_for_session_for_tests(app, true));
 }
 
 TEST(ProcessRuntimeConfigTests, HeadlessCageSteamBigPictureSkipsHostShutdownUndo) {

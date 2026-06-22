@@ -265,15 +265,21 @@ TEST(CageDisplayRouterPolicyTests, MangoHudPrefixIsSuppressedForSteamBigPicture)
 }
 
 TEST(CageDisplayRouterPolicyTests, MangoHudPrefixStillAppliesToRegularGames) {
-  EXPECT_EQ(
-    cage_display_router::mangohud_prefix_for_command_for_tests(
-      "steam steam://rungameid/12345",
-      true,
-      "1",
-      "fps_limit=60"
-    ),
-    "MANGOHUD=1 MANGOHUD_DLSYM=1 MANGOHUD_CONFIG=fps_limit=60 "
+  const auto prefix = cage_display_router::mangohud_prefix_for_command_for_tests(
+    "steam steam://rungameid/12345",
+    true,
+    "1",
+    "fps_limit=60"
   );
+  // The prefix must be non-empty and carry MANGOHUD_CONFIG and MANGOHUD_DLSYM.
+  // The exact form varies: when the mangohud binary is in PATH the prefix includes
+  // "exec <mangohud_path>"; otherwise it falls back to "MANGOHUD=1 ... exec ".
+  EXPECT_FALSE(prefix.empty());
+  EXPECT_NE(prefix.find("MANGOHUD_CONFIG=fps_limit=60"), std::string::npos);
+  EXPECT_NE(prefix.find("MANGOHUD_DLSYM=1"), std::string::npos);
+  // Prefix must be self-contained: it ends with "exec " (plus optional binary path)
+  // so callers do NOT need to append their own "exec ".
+  EXPECT_NE(prefix.find("exec "), std::string::npos);
 }
 
 TEST(CageDisplayRouterPolicyTests, LabwcProcessEnvironmentDoesNotForceHardwareCursors) {

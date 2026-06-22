@@ -118,6 +118,13 @@ namespace cage_display_router {
            normalized.find("steam://rungameid/") == std::string::npos;
   }
 
+  static bool executable_accessible(const std::string &path);
+  static std::string resolve_executable(const std::string &name);
+
+  // Returns a shell fragment to prepend to game_cmd (without a separate "exec ").
+  // When non-empty, it already ends with the exec keyword (and optionally the mangohud
+  // binary path), so callers should use:
+  //   prefix.empty() ? "exec " + game_cmd : prefix + game_cmd
   std::string mangohud_prefix_for_command(std::string_view game_cmd,
                                           bool allow_mangohud,
                                           std::string_view mangohud_value,
@@ -130,11 +137,37 @@ namespace cage_display_router {
       return {};
     }
 
-    std::string prefix = "MANGOHUD=1 MANGOHUD_DLSYM=1 ";
     const auto config = trimmed(mangohud_config);
+
+    // Prefer the mangohud wrapper binary: it sets LD_PRELOAD=libMangoHud.so in addition
+    // to MANGOHUD=1, which ensures the overlay is injected into native games that do not
+    // use the Steam Runtime (env-var-only injection does not work for them).
+    // Steam Runtime / Proton games continue to work because the wrapper also sets MANGOHUD=1,
+    // which the runtime uses for its own auto-injection path inside the container.
+    // Isolate from the user's global ~/.config/MangoHud/MangoHud.conf: it can carry
+    // settings (e.g. vsync, fps_limit) written by tools like GOverlay that would
+    // otherwise leak into every streamed game and cap/alter the frame rate behind
+    // the session's back. Pointing MANGOHUD_CONFIGFILE at /dev/null makes the
+    // session's MANGOHUD_CONFIG the single source of truth.
+    const std::string isolate_config = "MANGOHUD_CONFIGFILE=/dev/null ";
+
+    const auto mangohud_bin = resolve_executable("mangohud");
+    if (!mangohud_bin.empty()) {
+      std::string prefix = isolate_config;
+      if (!config.empty()) {
+        prefix += "MANGOHUD_CONFIG=" + config + " ";
+      }
+      prefix += "MANGOHUD_DLSYM=1 exec " + mangohud_bin + " ";
+      return prefix;
+    }
+
+    // Fallback when the mangohud binary is not in PATH: inject via env vars only.
+    // This covers Steam Runtime / Proton games that detect MANGOHUD=1 automatically.
+    std::string prefix = isolate_config + "MANGOHUD=1 MANGOHUD_DLSYM=1 ";
     if (!config.empty()) {
       prefix += "MANGOHUD_CONFIG=" + config + " ";
     }
+    prefix += "exec ";
     return prefix;
   }
 
@@ -708,15 +741,20 @@ namespace cage_display_router {
       "sleep 0.1; "
       "done; ";
     if (!game_cmd.empty()) {
+      // mangohud_prefix is self-contained when non-empty: it already ends with "exec "
+      // (optionally with the mangohud binary path), so we must NOT add another "exec ".
+      const std::string exec_game = mangohud_prefix.empty()
+        ? scale_env_prefix + "exec " + game_cmd
+        : scale_env_prefix + mangohud_prefix + game_cmd;
       if (headless) {
         // In headless mode: set resolution, ensure XWayland is ready, then launch game.
         // labwc with xwaylandPersistence=yes starts XWayland eagerly, but we still
         // need to wait for DISPLAY to be available before launching Steam.
         startup_cmd = mode_retry_cmd +
           "for i in $(seq 1 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; "
-          + scale_env_prefix + mangohud_prefix + "exec " + game_cmd;
+          + exec_game;
       } else {
-        startup_cmd = mode_retry_cmd + scale_env_prefix + mangohud_prefix + "exec " + game_cmd;
+        startup_cmd = mode_retry_cmd + exec_game;
       }
     } else {
       startup_cmd = mode_retry_cmd + "exec sleep infinity";
