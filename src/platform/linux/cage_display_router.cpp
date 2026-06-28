@@ -545,7 +545,20 @@ namespace cage_display_router {
       return false;
     }
 
-    return hwdevice_type == platf::mem_type_e::cuda;
+    if (hwdevice_type == platf::mem_type_e::cuda) {
+      return true;
+    }
+
+    // VAAPI headless GPU DMA-BUF capture is opt-in: it delivers full framerate (the
+    // SHM fallback is CPU-bound and caps high-resolution sessions around 60fps), but
+    // it was historically disabled for stability. The caller still applies the
+    // cross-GPU render_node guard and falls back to SHM when capture and encoder live
+    // on different GPUs, so single-GPU systems get the fast path safely.
+    if (hwdevice_type == platf::mem_type_e::vaapi) {
+      return config::video.linux_display.headless_vaapi_dmabuf_capture;
+    }
+
+    return false;
   }
 
   std::optional<bool> cached_windowed_gpu_native_probe_result() {

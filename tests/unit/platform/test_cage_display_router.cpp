@@ -5,6 +5,7 @@
 #include "../../tests_common.h"
 
 #ifdef __linux__
+  #include <src/config.h>
   #include <src/platform/linux/cage_display_router.h>
   #include <src/platform/linux/wayland.h>
 
@@ -109,6 +110,25 @@ TEST(CageDisplayRouterPolicyTests, EffectiveHeadlessVaapiSkipsExtcopyDmabufForSh
     runtime_state,
     platf::mem_type_e::vaapi
   ));
+}
+
+TEST(CageDisplayRouterPolicyTests, EffectiveHeadlessVaapiAttemptsExtcopyDmabufWhenOptedIn) {
+  const platf::runtime_state_t runtime_state {
+    .requested_headless = true,
+    .effective_headless = true,
+    .gpu_native_override_active = false,
+    .backend_name = "labwc",
+  };
+
+  const bool previous = config::video.linux_display.headless_vaapi_dmabuf_capture;
+  config::video.linux_display.headless_vaapi_dmabuf_capture = true;
+
+  EXPECT_TRUE(cage_display_router::should_attempt_headless_extcopy_dmabuf(
+    runtime_state,
+    platf::mem_type_e::vaapi
+  ));
+
+  config::video.linux_display.headless_vaapi_dmabuf_capture = previous;
 }
 
 TEST(CageDisplayRouterPolicyTests, EffectiveHeadlessCudaCanAttemptExtcopyDmabuf) {

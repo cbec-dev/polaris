@@ -166,6 +166,7 @@ namespace config {
       bool capture_profile;          ///< Emit periodic transport-tagged capture timing summaries
       bool cage_migrate_launcher;    ///< Shut down host launcher (Steam/Heroic/Lutris) before cage session so it relaunches inside the stream compositor
       bool cage_restore_launcher;    ///< Relaunch host launcher on the KDE compositor after the stream session ends
+      bool headless_vaapi_dmabuf_capture;  ///< Use the GPU ext-image-copy-capture DMA-BUF path for VAAPI headless sessions (full framerate; falls back to SHM on cross-GPU mismatch)
     } linux_display;
 
     std::string fallback_mode;

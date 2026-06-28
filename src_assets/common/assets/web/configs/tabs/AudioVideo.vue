@@ -407,6 +407,22 @@ const validateFallbackMode = (event) => {
               </div>
 
               <div class="surface-muted p-4">
+                <div class="text-sm font-medium text-silver">VAAPI headless DMA-BUF capture</div>
+                <div class="mt-1 text-sm text-storm">For AMD/Intel (VAAPI) headless sessions, capture frames on the GPU via ext-image-copy-capture instead of the CPU SHM path. The SHM fallback is CPU-bound and caps high-resolution streams near 60fps; this keeps capture at full framerate. Polaris automatically falls back to SHM if the capture and encoder are on different GPUs.</div>
+                <div class="mt-3 rounded bg-deep/60 px-2 py-1 font-mono text-xs text-storm">linux_headless_vaapi_dmabuf_capture</div>
+                <label class="mt-4 flex items-center justify-between gap-4">
+                  <span class="text-xs uppercase tracking-[0.18em] text-storm">Experimental</span>
+                  <input
+                    type="checkbox"
+                    class="sr-only peer"
+                    :checked="config.linux_headless_vaapi_dmabuf_capture === 'enabled'"
+                    @change="config.linux_headless_vaapi_dmabuf_capture = $event.target.checked ? 'enabled' : 'disabled'"
+                  >
+                  <div class="relative h-5 w-9 rounded-full bg-storm/40 transition-colors peer-checked:bg-accent after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"></div>
+                </label>
+              </div>
+
+              <div class="surface-muted p-4">
                 <div class="text-sm font-medium text-silver">Capture telemetry profiling</div>
                 <div class="mt-1 text-sm text-storm">Emit timing summaries while validating capture backends.</div>
                 <div class="mt-3 rounded bg-deep/60 px-2 py-1 font-mono text-xs text-storm">linux_capture_profile</div>

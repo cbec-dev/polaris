@@ -155,6 +155,7 @@ namespace confighttp::validation {
       "linux_cage_migrate_launcher"sv,
       "linux_cage_restore_launcher"sv,
       "linux_capture_profile"sv,
+      "linux_headless_vaapi_dmabuf_capture"sv,
       "linux_prefer_gpu_native_capture"sv,
       "linux_primary_output"sv,
       "linux_streaming_output"sv,
