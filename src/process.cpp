@@ -3451,6 +3451,23 @@ namespace proc {
       }
       gamepad_isolation_prepared = true;
       gamepad_isolation_plan = platf::gamepad::isolation::prepare_headless_labwc_launch();
+
+      // TODO(gamepad-isolation): REVERT this block once the real fix lands.
+      // The strict bwrap namespace (#146) freezes /dev/input and disables udev
+      // hotplug, which breaks gamepad pause/resume and mid-game controller
+      // hot-plug. Until Step 2 (live Polaris-managed /dev/input + persistent
+      // virtual gamepad) is implemented, force the strict path off and fall back
+      // to the namespace-free best-effort SDL hints so controllers keep working.
+      // Remove this downgrade to re-enable strict bubblewrap isolation.
+      if (gamepad_isolation_plan.mode == platf::gamepad::isolation::isolation_mode_e::strict_bwrap) {
+        gamepad_isolation_plan.mode = gamepad_isolation_plan.fallback_sdl.applied() ?
+                                        platf::gamepad::isolation::isolation_mode_e::best_effort_sdl :
+                                        platf::gamepad::isolation::isolation_mode_e::disabled;
+        BOOST_LOG(info) << "gamepad_isolation: strict bubblewrap isolation force-disabled (temporary #146 workaround); "sv
+                        << (gamepad_isolation_plan.fallback_applied() ?
+                              "using best-effort SDL hints"sv :
+                              "no gamepad isolation active"sv);
+      }
     };
 
     auto apply_gamepad_sdl_env = [&](auto &env) {
